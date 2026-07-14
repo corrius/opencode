@@ -28,6 +28,7 @@ import { ConfigVariable } from "./config/variable"
 import { ConfigWatcher } from "./config/watcher"
 import { ConfigV1 } from "./v1/config/config"
 import { ConfigMigrateV1 } from "./v1/config/migrate"
+import { Flag } from "./flag/flag"
 
 export class Info extends Schema.Class<Info>("Config.Info")({
   $schema: Schema.optional(Schema.String).annotate({
@@ -194,14 +195,15 @@ const layer = Layer.effect(
       const globalAgentsDirectory = AbsolutePath.make(path.join(global.home, ".agents"))
       const globalClaudeDirectory = AbsolutePath.make(path.join(global.home, ".claude"))
       const locationIsGlobal = path.resolve(location.directory) === path.resolve(global.config)
-      const discovered = locationIsGlobal
-        ? []
-        : yield* fs
-            .up({
-              targets: [".opencode", ".claude", ".agents", ...names.toReversed()],
-              start: location.directory,
-            })
-          .pipe(Effect.orDie)
+      const discovered =
+        locationIsGlobal || Flag.OPENCODE_DISABLE_PROJECT_CONFIG
+          ? []
+          : yield* fs
+              .up({
+                targets: [".opencode", ".claude", ".agents", ...names.toReversed()],
+                start: location.directory,
+              })
+              .pipe(Effect.orDie)
 
       // We load certain files from a few other folders in the ecosystem
       const claude = [

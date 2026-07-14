@@ -254,6 +254,64 @@ describe("Config", () => {
     ),
   )
 
+  it.live("skips project sources and preserves global config when project config is disabled", () =>
+    Effect.acquireUseRelease(
+      Effect.sync(() => {
+        const previous = process.env.OPENCODE_DISABLE_PROJECT_CONFIG
+        process.env.OPENCODE_DISABLE_PROJECT_CONFIG = "true"
+        return previous
+      }),
+      () =>
+        Effect.acquireUseRelease(
+          Effect.promise(() => tmpdir()),
+          (tmp) =>
+            Effect.gen(function* () {
+              const global = path.join(tmp.path, "global")
+              const project = path.join(tmp.path, "project")
+              yield* Effect.promise(async () => {
+                await Promise.all([
+                  fs.mkdir(path.join(project, ".opencode"), { recursive: true }),
+                  fs.mkdir(path.join(project, ".claude"), { recursive: true }),
+                  fs.mkdir(path.join(project, ".agents"), { recursive: true }),
+                  fs.mkdir(global, { recursive: true }),
+                ])
+                await Promise.all([
+                  fs.writeFile(path.join(project, "opencode.json"), JSON.stringify({ shell: "project" })),
+                  fs.writeFile(
+                    path.join(project, ".opencode", "opencode.json"),
+                    JSON.stringify({ username: "project" }),
+                  ),
+                  fs.writeFile(path.join(global, "opencode.json"), JSON.stringify({ shell: "global" })),
+                ])
+              })
+
+              const entries = yield* Config.Service.pipe(
+                Effect.flatMap((config) => config.entries()),
+                Effect.provide(testLayer(project, global, project)),
+              )
+
+              expect(entries.filter((entry) => entry.type === "document")).toEqual([
+                new Config.Document({
+                  type: "document",
+                  path: path.join(global, "opencode.json"),
+                  info: new Config.Info({ shell: "global" }),
+                }),
+              ])
+              expect(entries.filter((entry) => entry.type === "directory")).toEqual([
+                new Config.Directory({ type: "directory", path: AbsolutePath.make(global) }),
+              ])
+              expect(entries.filter((entry) => entry.type === "claude" || entry.type === "agents")).toEqual([])
+            }),
+          (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+        ),
+      (previous) =>
+        Effect.sync(() => {
+          if (previous === undefined) delete process.env.OPENCODE_DISABLE_PROJECT_CONFIG
+          else process.env.OPENCODE_DISABLE_PROJECT_CONFIG = previous
+        }),
+    ),
+  )
+
   it.live("does not watch ecosystem config roots", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
